@@ -8,13 +8,34 @@
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/ktime.h>
-#include <linux/string.h>
+#include <linux/spinlock.h>
 
 #include "exec_kprobe_core.h"
 
 #define CMDLINE_MAX_LEN 2048
 
 static struct kretprobe exec_kretprobe;
+
+static struct exec_event exec_ring[EXEC_RING_SIZE];
+static unsigned int exec_head;      // next write index
+static unsigned int exec_count;     // number of valid entries
+static spinlock_t exec_lock;
+
+// Push an exec_event into the ring buffer
+static void exec_ring_push(const struct exec_event *ev)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&exec_lock, flags);
+
+    exec_ring[exec_head] = *ev;
+
+    exec_head = (exec_head + 1) % EXEC_RING_SIZE;
+    if (exec_count < EXEC_RING_SIZE)
+        exec_count++;
+
+    spin_unlock_irqrestore(&exec_lock, flags);
+}
 
 static int exec_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
@@ -33,6 +54,7 @@ static int exec_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
     uid_t uid   = from_kuid(&init_user_ns, kuid);
 
     struct timespec64 ts;
+    struct exec_event ev;
 
 #if defined(CONFIG_X86_64)
     ret = regs->ax;
@@ -59,7 +81,7 @@ static int exec_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
 
     if (copy_from_user(buf, (const void __user *)arg_start, len) != 0) {
         ktime_get_real_ts64(&ts);
-        pr_info("%u %d - <cmdline_copy_failed> %lld.%09ld\n", uid, task->pid, (long long)ts.tv_sec, ts.tv_nsec);
+        pr_info("exec kprobe: uid=%u pid=%d - <cmdline_copy_failed> ( %lld.%09ld\n )", uid, task->pid, (long long)ts.tv_sec, ts.tv_nsec);
         kfree(buf);
         return 0;
     }
@@ -98,14 +120,37 @@ static int exec_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
 
     ktime_get_real_ts64(&ts);
 
+    //Fill exec_event and push into ring buffer
+    memset(&ev, 0, sizeof(ev));
+    ev.uid = uid;
+    ev.pid = task->pid;
+    ev.ts  = ts;
+
+    if (command && command[0])
+        strscpy(ev.cmd, command, sizeof(ev.cmd));
+    else
+        strscpy(ev.cmd, "-", sizeof(ev.cmd));
+
+    if (args && args[0])
+        strscpy(ev.args, args, sizeof(ev.args));
+    else
+        strscpy(ev.args, "-", sizeof(ev.args));
+
+    exec_ring_push(&ev);
+
     /* final log: <uid> <pid> <command> <argument> <time> */
-    pr_info("%u %d %s %s %lld.%09ld\n", uid, task->pid, command[0] ? command : "-", (args && args[0]) ? args : "-", (long long)ts.tv_sec, ts.tv_nsec);
+    // pr_info("%u %d %s %s %lld.%09ld\n", uid, task->pid, command[0] ? command : "-", (args && args[0]) ? args : "-", (long long)ts.tv_sec, ts.tv_nsec);
+    pr_info("exec kprobe: uid=%u pid=%d %s %s ( %lld.%09ld\n )", uid, task->pid, command[0] ? command : "-", (args && args[0]) ? args : "-", (long long)ts.tv_sec, ts.tv_nsec);
     kfree(buf);
     return 0;
 }
 
 int exec_kprobe_core_init(void){
     int ret;
+
+    spin_lock_init(&exec_lock);
+    exec_head  = 0;
+    exec_count = 0;
 
     memset(&exec_kretprobe, 0, sizeof(exec_kretprobe));
     exec_kretprobe.kp.symbol_name = "__x64_sys_execve";
@@ -119,7 +164,7 @@ int exec_kprobe_core_init(void){
     }
 
     pr_info("exec_kprobe_log: kretprobe registered on %s\n",
-            exec_kretprobe.kp.symbol_name);
+        exec_kretprobe.kp.symbol_name);
     return ret;
 }
 
