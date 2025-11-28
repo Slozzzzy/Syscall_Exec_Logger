@@ -10,12 +10,9 @@
 #include <linux/ktime.h>
 #include <linux/string.h>
 
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("kpakkawat & athanathat");
-MODULE_DESCRIPTION("execve kretprobe logging: <uid> <pid> <command> <argument> <time>");
-MODULE_VERSION("1.0");
+#include "exec_kprobe_core.h"
 
-#define CMDLINE_MAX_LEN  2048
+#define CMDLINE_MAX_LEN 2048
 
 static struct kretprobe exec_kretprobe;
 
@@ -38,7 +35,7 @@ static int exec_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
     struct timespec64 ts;
 
 #if defined(CONFIG_X86_64)
-    ret = regs->ax;    
+    ret = regs->ax;
 #else
     return 0;
 #endif
@@ -70,7 +67,7 @@ static int exec_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
     buf[len] = '\0';
 
     cmd_end = strnlen(buf, len); // index of first \0
-    command = buf; 
+    command = buf;
 
     // Check args
     if (cmd_end >= (size_t)len) {
@@ -107,7 +104,7 @@ static int exec_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
     return 0;
 }
 
-static int __init exec_kretprobe_log_init(void){
+int exec_kprobe_core_init(void){
     int ret;
 
     memset(&exec_kretprobe, 0, sizeof(exec_kretprobe));
@@ -123,13 +120,10 @@ static int __init exec_kretprobe_log_init(void){
 
     pr_info("exec_kprobe_log: kretprobe registered on %s\n",
             exec_kretprobe.kp.symbol_name);
-    return 0;
+    return ret;
 }
 
-static void __exit exec_kretprobe_log_exit(void){
+void exec_kprobe_core_exit(void){
     unregister_kretprobe(&exec_kretprobe);
     pr_info("exec_kprobe_log: kretprobe unregistered\n");
 }
-
-module_init(exec_kretprobe_log_init);
-module_exit(exec_kretprobe_log_exit);

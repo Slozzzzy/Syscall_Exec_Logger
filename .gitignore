@@ -1,0 +1,28 @@
+# Kernel build outputs
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+
+# Auto-generated build metadata
+*.cmd
+*.order
+modules.order
+Module.symvers
+Module.markers
+.*.cmd
+
+# Backup crap
+*~
+\#*\#
+*.swp
+
+# Out-of-tree build artifacts
+*.ko.cmd
+*.mod.cmd
+*.mod.o.cmd
+*.o.cmd
+
+# Common build dirs
+/.tmp_versions/
