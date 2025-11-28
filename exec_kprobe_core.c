@@ -8,6 +8,8 @@
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/ktime.h>
+#include <linux/time.h>
+#include <linux/time64.h>
 #include <linux/spinlock.h>
 
 #include "exec_kprobe_core.h"
@@ -118,7 +120,9 @@ static int exec_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
         }
     }
 
+    struct tm tm;
     ktime_get_real_ts64(&ts);
+    time64_to_tm(ts.tv_sec, 0, &tm);
 
     //Fill exec_event and push into ring buffer
     memset(&ev, 0, sizeof(ev));
@@ -140,7 +144,7 @@ static int exec_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
 
     /* final log: <uid> <pid> <command> <argument> <time> */
     // pr_info("%u %d %s %s %lld.%09ld\n", uid, task->pid, command[0] ? command : "-", (args && args[0]) ? args : "-", (long long)ts.tv_sec, ts.tv_nsec);
-    pr_info("exec kprobe: uid=%u pid=%d %s %s ( %lld.%09ld\n )", uid, task->pid, command[0] ? command : "-", (args && args[0]) ? args : "-", (long long)ts.tv_sec, ts.tv_nsec);
+    pr_info("uid=%u pid=%d cmd=\"%s\" %s time:%04ld-%02d-%02d %02d:%02d:%02d.%09ld\n", ev.uid, ev.pid, ev.cmd, ev.args, tm.tm_year + 1900, tm.tm_mon +1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec);
     kfree(buf);
     return 0;
 }
